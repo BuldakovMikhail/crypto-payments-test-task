@@ -127,14 +127,14 @@ stateDiagram-v2
     underpaid --> confirming
     confirming --> aml_pending: N подтверждений
     confirming --> awaiting_payment: реорг
-    aml_pending --> completed: AML ок
-    aml_pending --> overpaid: AML ок, но переплата
-    overpaid --> refund_required
+    aml_pending --> completed: AML ок, счёт оплачен
     aml_pending --> refund_required: AML отклонил
     refund_required --> refunded
     awaiting_payment --> expired: TTL
     underpaid --> expired: TTL
 ```
+
+При переплате после N подтверждений и успешного AML счёт переходит в completed, партнёру отправляется invoice.completed, а на излишек создаётся отдельный возврат в refunds. Например, при оплате 105 USDT по счёту на 100 USDT в оплату принимаются 100 USDT: партнёру зачисляется эта сумма за вычетом комиссии, рассчитанной со 100 USDT. Оставшиеся 5 USDT возвращаются отправителю за вычетом газа. Статус возврата отслеживается отдельно; счёт остаётся completed, в том числе если возврат излишка требует ручного решения или получает статус unrefundable.
 
 ### Возврат (refunds)
 
@@ -164,7 +164,7 @@ stateDiagram-v2
 - Партнёр получает вебхук invoice.underpaid с полями expected, received, remaining, товар не отдаёт до invoice.completed.
 - Поддержка видит таймлайн всех переводов счёта и может вручную принять недоплату через manual_review с записью в аудит.
 - Поведение настраивается параметром партнёра underpayment_policy: strict (ждём доплату, по истечении срока возврат), tolerance_bps (автоприём в пределах допуска, по умолчанию 0,5%) и accept_partial (по истечении срока зачисляем полученное, партнёр сам решает, отдавать ли товар).
-- Комиссия считается с фактически полученной суммы.
+- Комиссия считается с суммы, принятой в оплату счёта; возвращаемая переплата в базу комиссии не входит.
 
 ### 2. AML отклонил платёж.
 
