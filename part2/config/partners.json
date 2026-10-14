@@ -1,0 +1,4 @@
+[
+  {"id":"alpha", "api_key":"alpha-secret", "fee_bps":150, "fixed_fee":"0.100000"},
+  {"id":"beta", "api_key":"beta-secret", "fee_bps":200, "fixed_fee":"0.000000"}
+]

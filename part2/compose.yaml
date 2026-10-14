@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD: payments
+      POSTGRES_DB: payments
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgres://payments:payments@db:5432/payments?sslmode=disable
+      ADMIN_KEY: local-admin-key
+      CONFIRMATIONS: "3"
+      AML_BLACKLIST: "0x0000000000000000000000000000000000000bad"
+      PARTNERS_FILE: /config/partners.json
+    volumes:
+      - ./config:/config:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+  tests:
+    image: golang:1.25-alpine
+    profiles: ["test"]
+    working_dir: /src
+    volumes:
+      - .:/src:ro
+      - go-mod:/go/pkg/mod
+    environment:
+      TEST_DATABASE_URL: postgres://payments:payments@db:5432/payments?sslmode=disable
+    command: ["go", "test", "-count=1", "-v", "./..."]
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  postgres-data:
+  go-mod:
