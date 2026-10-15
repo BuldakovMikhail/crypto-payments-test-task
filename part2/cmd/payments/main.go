@@ -33,7 +33,7 @@ func run() error {
 	if dsn == "" || admin == "" {
 		return errors.New("DATABASE_URL and ADMIN_KEY are required")
 	}
-	n := int64(3)
+	n := int64(12)
 	if raw := os.Getenv("CONFIRMATIONS"); raw != "" {
 		v, err := strconv.ParseInt(raw, 10, 64)
 		if err != nil || v < 1 || v > 1000000 {
@@ -53,17 +53,11 @@ func run() error {
 	if err = json.Unmarshal(data, &partners); err != nil {
 		return err
 	}
-	for _, p := range partners {
-		if p.APIKey == admin {
-			return errors.New("admin key must differ from partner keys")
-		}
-	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	// The mock uses a second connection while a processing transaction is open.
 
 	db.SetMaxOpenConns(20)
 	db.SetMaxIdleConns(10)
