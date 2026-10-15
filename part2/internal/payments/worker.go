@@ -10,7 +10,9 @@ import (
 
 // RunOnce can safely be invoked by multiple processes; PostgreSQL owns the locks.
 func (s *Service) RunOnce(ctx context.Context) error {
-	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM transfers WHERE status IN ('confirming','aml_pending') AND next_attempt_at<=now() ORDER BY next_attempt_at,id LIMIT 100`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT t.id FROM transfers t CROSS JOIN chain_state c
+ WHERE t.status IN ('confirming','aml_pending') AND t.canonical AND t.next_attempt_at<=now()
+ AND c.head-t.block_height+1 >= $1 ORDER BY t.next_attempt_at,t.id LIMIT 100`, s.Confirmations)
 	if err != nil {
 		return err
 	}
@@ -72,11 +74,32 @@ func (s *Service) process(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	// Only the bounded local mock is called under the chain lock. A production
-	// HTTP AML adapter needs a durable job/lease and a separate finalize transaction.
+	// Persist the hold before calling AML. No database locks or connections are
+	// held during the provider call. Concurrent AML calls are safe to repeat.
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	checkedGeneration := generation
 	amlCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	high, amlErr := s.AML.Check(amlCtx, sender)
 	cancel()
+	tx, err = s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	snapshot, err = s.Chain.Snapshot(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT status,generation FROM transfers WHERE id=$1 FOR UPDATE`, id).Scan(&status, &generation)
+	if err != nil {
+		return err
+	}
+	// Discard a response made stale by reorg/reinclusion or another worker.
+	if status != "aml_pending" || generation != checkedGeneration || !snapshot.Canonical || snapshot.Confirmations < s.Confirmations {
+		return tx.Commit()
+	}
 	if amlErr != nil {
 		_, err = tx.ExecContext(ctx, `UPDATE transfers SET aml_attempts=aml_attempts+1,last_error=$2,next_attempt_at=now()+($3*interval '1 millisecond') WHERE id=$1`, id, amlErr.Error(), s.RetryDelay.Milliseconds())
 		if err != nil {

@@ -3,6 +3,7 @@ package payments
 import (
 	"context"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -28,8 +29,12 @@ func (s *Service) Handler(adminKey string) http.Handler {
 				return
 			}
 			id, err := s.Authenticate(r.Context(), key)
-			if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
 				writeJSON(w, 401, map[string]string{"error": "invalid API key"})
+				return
+			}
+			if err != nil {
+				respond(w, nil, err)
 				return
 			}
 			fn(w, r, id)

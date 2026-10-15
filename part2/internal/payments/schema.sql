@@ -66,3 +66,12 @@ CREATE OR REPLACE VIEW ledger_entries AS
     SELECT id AS posting_id, debit_account AS account, -amount AS delta FROM ledger_postings
     UNION ALL
     SELECT id AS posting_id, credit_account AS account, amount AS delta FROM ledger_postings;
+
+CREATE OR REPLACE FUNCTION reject_ledger_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'ledger is append-only; create a reversal posting';
+END;
+$$;
+DROP TRIGGER IF EXISTS ledger_immutable ON ledger_postings;
+CREATE TRIGGER ledger_immutable BEFORE UPDATE OR DELETE ON ledger_postings
+    FOR EACH ROW EXECUTE FUNCTION reject_ledger_mutation();
