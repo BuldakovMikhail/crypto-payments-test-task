@@ -2,8 +2,24 @@ package payments
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 )
+
+func TestNegativeAmountFormatting(t *testing.T) {
+	for _, tc := range []struct {
+		amount Amount
+		want   string
+	}{
+		{-1, "-0.000001"},
+		{-1_234_567, "-1.234567"},
+		{Amount(math.MinInt64), "-9223372036854.775808"},
+	} {
+		if got := tc.amount.String(); got != tc.want {
+			t.Fatalf("%d: got %s, want %s", tc.amount, got, tc.want)
+		}
+	}
+}
 
 func TestAmounts(t *testing.T) {
 	for _, tc := range []struct{ in, out string }{{"0", "0.000000"}, {"0.000001", "0.000001"}, {"100.123456", "100.123456"}, {"1000000000", "1000000000.000000"}} {

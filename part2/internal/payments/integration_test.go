@@ -549,3 +549,71 @@ func TestIntegrationConcurrentTransferDelivery(t *testing.T) {
 	f.balance("98.400000", "0.000000", "0.000000")
 	f.ledgerBalanced()
 }
+
+func TestIntegrationReorgRechecksEverySettlementContribution(t *testing.T) {
+	f := newFixture(t)
+	v := f.invoice("lost-confirmations", "100")
+	older := f.receive(f.incoming(v, 40_000_000, false, 20)) // block 1
+	f.mine(1)
+	newer := f.receive(f.incoming(v, 60_000_000, false, 21)) // block 3
+	f.mine(2)
+	// Clear the newer payment first; the older one has not passed AML yet.
+	must(t, f.s.process(f.ctx, newer))
+	f.balance("0.000000", "60.000000", "0.000000")
+	must(t, (&Simulator{DB: f.s.DB}).Reorg(f.ctx, 2))
+	// Both transfers remain canonical, but only the older one still has N.
+	must(t, f.s.process(f.ctx, older))
+	f.balance("0.000000", "100.000000", "0.000000")
+	f.state(v.ID, "underpaid")
+	f.process()
+	f.balance("0.000000", "100.000000", "0.000000")
+	f.restart()
+	f.mine(2)
+	// Settlement must resume without a new incoming payment or another AML call.
+	f.amlDown(true)
+	f.parallelProcess(8)
+	f.state(v.ID, "completed")
+	f.balance("98.400000", "0.000000", "0.000000")
+	var attempts int
+	must(t, f.s.DB.QueryRowContext(f.ctx, `SELECT sum(aml_attempts) FROM transfers`).Scan(&attempts))
+	if attempts != 2 {
+		t.Fatalf("successful AML checks were repeated: %d", attempts)
+	}
+	f.ledgerBalanced()
+}
+
+func TestIntegrationWorkerContinuesAfterTransferFailure(t *testing.T) {
+	f := newFixture(t)
+	bad := f.invoice("failed-write", "100")
+	badID := f.receive(f.incoming(bad, 100_000_000, true, 22))
+	good := f.invoice("healthy-write", "100")
+	f.receive(f.incoming(good, 100_000_000, false, 23))
+	f.mine(2)
+	_, err := f.s.DB.ExecContext(f.ctx, `CREATE FUNCTION fail_one_refund() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN IF NEW.credit_account LIKE 'refund:%' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END; $$;
+ CREATE TRIGGER fail_one_refund BEFORE INSERT ON ledger_postings FOR EACH ROW EXECUTE FUNCTION fail_one_refund()`)
+	must(t, err)
+	if err = f.s.RunOnce(f.ctx); err == nil || !strings.Contains(err.Error(), badID) {
+		t.Fatalf("expected failure identifying the transfer, got %v", err)
+	}
+	f.state(good.ID, "completed")
+	f.balance("98.400000", "100.000000", "0.000000")
+	f.ledgerBalanced()
+}
+
+func TestIntegrationLedgerRejectsTruncate(t *testing.T) {
+	f := newFixture(t)
+	v := f.invoice("immutable", "100")
+	f.receive(f.incoming(v, 100_000_000, false, 24))
+	f.mine(2)
+	f.process()
+	// Applying schema updates twice must preserve the protection and all funds.
+	must(t, Migrate(f.ctx, f.s.DB))
+	for _, query := range []string{"TRUNCATE ledger_postings", "DELETE FROM ledger_postings"} {
+		if _, err := f.s.DB.ExecContext(f.ctx, query); err == nil {
+			t.Fatalf("ledger accepted %s", query)
+		}
+	}
+	f.balance("98.400000", "0.000000", "0.000000")
+	f.ledgerBalanced()
+}

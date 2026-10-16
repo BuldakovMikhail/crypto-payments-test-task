@@ -43,7 +43,14 @@ func ParseAmount(s string) (Amount, error) {
 	}
 	return a, nil
 }
-func (a Amount) String() string               { return fmt.Sprintf("%d.%06d", a/1_000_000, a%1_000_000) }
+func (a Amount) String() string {
+	// Split before taking absolute values so MinInt64 is also representable.
+	whole, fraction := a/1_000_000, a%1_000_000
+	if a < 0 {
+		return fmt.Sprintf("-%d.%06d", -whole, -fraction)
+	}
+	return fmt.Sprintf("%d.%06d", whole, fraction)
+}
 func (a Amount) MarshalJSON() ([]byte, error) { return json.Marshal(a.String()) }
 func (a *Amount) UnmarshalJSON(b []byte) error {
 	var s string

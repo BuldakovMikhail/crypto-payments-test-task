@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS transfers (
 );
 CREATE INDEX IF NOT EXISTS transfers_pending ON transfers(next_attempt_at)
     WHERE status IN ('confirming','aml_pending');
+CREATE INDEX IF NOT EXISTS transfers_cleared ON transfers(invoice_id)
+    WHERE status='aml_cleared' AND canonical;
 CREATE TABLE IF NOT EXISTS refunds (
     id text PRIMARY KEY,
     transfer_id text NOT NULL UNIQUE REFERENCES transfers,
@@ -75,3 +77,6 @@ $$;
 DROP TRIGGER IF EXISTS ledger_immutable ON ledger_postings;
 CREATE TRIGGER ledger_immutable BEFORE UPDATE OR DELETE ON ledger_postings
     FOR EACH ROW EXECUTE FUNCTION reject_ledger_mutation();
+DROP TRIGGER IF EXISTS ledger_no_truncate ON ledger_postings;
+CREATE TRIGGER ledger_no_truncate BEFORE TRUNCATE ON ledger_postings
+    FOR EACH STATEMENT EXECUTE FUNCTION reject_ledger_mutation();

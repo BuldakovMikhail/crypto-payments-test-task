@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -53,7 +54,7 @@ func (s *Simulator) Snapshot(ctx context.Context, tx *sql.Tx, id string) (ChainS
 // Receive mines a block containing one successful, genuine USDT log.
 // Re-delivery of a canonical log does not mine another block.
 func (s *Simulator) Receive(ctx context.Context, in Incoming) (string, error) {
-	if !addressPattern.MatchString(in.Address) || !addressPattern.MatchString(in.Sender) || !hashPattern.MatchString(in.TxHash) || in.Amount <= 0 || in.Amount > MaxAmount || in.LogIndex < 0 {
+	if !addressPattern.MatchString(in.Address) || !addressPattern.MatchString(in.Sender) || !hashPattern.MatchString(in.TxHash) || in.Amount <= 0 || in.Amount > MaxAmount || in.LogIndex < 0 || in.LogIndex > math.MaxInt32 {
 		return "", ErrInvalid
 	}
 	in.Address = strings.ToLower(in.Address)
